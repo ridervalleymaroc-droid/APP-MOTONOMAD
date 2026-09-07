@@ -32,6 +32,7 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
   
   const [liveMotorcycles, setLiveMotorcycles] = useState<Motorcycle[]>([]);
   const [isLoadingDb, setIsLoadingDb] = useState(true);
+  const [syncing, setSyncing] = useState(false);
 
   const fetchLiveFleet = async () => {
     try {
@@ -102,6 +103,79 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
     }
   };
 
+ const handleSyncWordPressFleet = async () => {
+    setSyncing(true);
+    try {
+      // 1. On récupère les données de WordPress
+      const response = await fetch('https://motonomad.ma/wp-json/motonomad/v1/bikes');
+      const wpBikes = await response.json();
+
+      if (!Array.isArray(wpBikes)) {
+        throw new Error('Format de données invalide reçu depuis WordPress');
+      }
+
+      // 2. On récupère les motos DÉJÀ EXISTANTES dans Supabase pour comparer
+      const { data: existingBikes, error: fetchError } = await supabase
+        .from('vehicles')
+        .select('id, registration_number');
+
+      if (fetchError) throw fetchError;
+
+      // 3. On boucle sur les motos WordPress
+      for (const bike of wpBikes) {
+        const wpRegistration = bike.registrationNumber || `WP-${bike.id}`;
+        
+        // On cherche si cette moto existe déjà dans Supabase via son immatriculation
+        const existingBike = (existingBikes || []).find(
+          (b) => b.registration_number === wpRegistration
+        );
+
+        // Les données à sauvegarder
+        const bikePayload = {
+          brand: bike.brand || 'Moto',
+          model: bike.name || 'Modèle',
+          registration_number: wpRegistration,
+          category: bike.category || 'Adventure',
+          daily_rate: Number(bike.price_per_day) || 500,
+          purchase_price: Number(bike.purchase_price) || 0,
+          image_url: bike.image || null,
+          // On ne modifie pas le 'status' si la moto existe déjà (pour ne pas écraser une location en cours)
+          ...( !existingBike && { status: 'AVAILABLE' } )
+        };
+
+        if (existingBike) {
+          // ✅ METTRE À JOUR si elle existe déjà (évite les doublons)
+          const { error } = await supabase
+            .from('vehicles')
+            .update(bikePayload)
+            .eq('id', existingBike.id);
+            
+          if (error) console.error("Erreur update moto:", error.message);
+        } else {
+          // ✅ INSÉRER si elle est totalement nouvelle
+          const { error } = await supabase
+            .from('vehicles')
+            .insert([bikePayload]);
+            
+          if (error) console.error("Erreur insert moto:", error.message);
+        }
+      }
+
+      alert(
+        language === 'fr'
+          ? 'Flotte synchronisée avec succès ! Les doublons ont été évités.'
+          : 'Fleet successfully synchronized! Duplicates prevented.'
+      );
+      await fetchLiveFleet();
+      onUpdate();
+    } catch (err: any) {
+      console.error(err);
+      alert((language === 'fr' ? 'Erreur de synchronisation : ' : 'Sync error: ') + err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   useEffect(() => {
     fetchLiveFleet();
   }, [reservations, maintenance]);
@@ -114,7 +188,6 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [deleteBikeId, setDeleteBikeId] = useState<string | null>(null);
 
-  // État pour le fichier image uploadé
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -134,7 +207,7 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
   });
 
   const handleOpenAdd = () => {
-    setSelectedImageFile(null); // Réinitialiser le fichier
+    setSelectedImageFile(null);
     setFormData({
       brand: 'Yamaha',
       model: 'Ténéré 700',
@@ -159,13 +232,11 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
     try {
       let finalImageUrl = formData.imageUrl;
 
-      // 1. Gérer l'upload de l'image si un fichier a été sélectionné
       if (selectedImageFile) {
         const fileExt = selectedImageFile.name.split('.').pop();
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
         const filePath = `${fileName}`;
 
-        // Upload vers le bucket Supabase 'vehicles'
         const { error: uploadError } = await supabase.storage
           .from('vehicles')
           .upload(filePath, selectedImageFile);
@@ -174,7 +245,6 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
           console.error("Erreur lors de l'upload de l'image:", uploadError);
           alert("Erreur lors du chargement de l'image.");
         } else {
-          // Récupération de l'URL publique générée par Supabase
           const { data: publicUrlData } = supabase.storage
             .from('vehicles')
             .getPublicUrl(filePath);
@@ -183,7 +253,6 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
         }
       }
 
-      // 2. Sauvegarde des données dans la base
       const statusDB = formData.currentStatus === 'Available' ? 'AVAILABLE' :
                        formData.currentStatus === 'Rented' ? 'RENTED' :
                        formData.currentStatus === 'Maintenance' ? 'MAINTENANCE' :
@@ -310,7 +379,21 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
               : 'Real-time status board, mileage logs, insurance expirations, and profitability per bike.'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Bouton de Synchronisation WordPress */}
+          <button
+            onClick={handleSyncWordPressFleet}
+            disabled={syncing}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#262626] text-[#D4A017] border border-[#333333] hover:bg-[#333333] transition-colors cursor-pointer shadow-md"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            <span>
+              {syncing
+                ? (language === 'fr' ? 'Synchronisation...' : 'Syncing...')
+                : (language === 'fr' ? 'Synchroniser WordPress' : 'Sync WordPress')}
+            </span>
+          </button>
+
           <div className="flex items-center bg-[#1A1A1A] border border-[#333333] rounded-xl p-1 text-sm shadow-sm">
             <button
               onClick={() => setViewMode('board')}
@@ -391,7 +474,6 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
                   onClick={() => setSelectedBike(bike)}
                   className="group relative rounded-2xl bg-[#181818] border border-[#2D2D2D] hover:border-[#D4A017]/40 transition-colors shadow-xl cursor-pointer flex flex-col justify-between overflow-hidden"
                 >
-                  {/* Photo Header */}
                   <div className="relative h-48 w-full bg-[#121212] overflow-hidden">
                     <img
                       src={bikePhoto}
@@ -408,7 +490,6 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
                     </div>
                   </div>
 
-                  {/* Body Info */}
                   <div className="p-5 flex-1 flex flex-col">
                     <div className="mb-4">
                       <span className="text-[10px] uppercase tracking-widest font-bold text-[#D4A017] block mb-1">
@@ -449,7 +530,6 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
                     </div>
                   </div>
 
-                  {/* Hover Actions Overlay */}
                   <div className="px-5 py-3 bg-[#121212] flex items-center justify-between text-xs border-t border-[#2A2A2A]">
                      <span className="text-zinc-500 font-medium group-hover:text-white transition-colors">
                       {language === 'fr' ? 'Inspecter la moto' : 'Inspect bike'} →
@@ -458,7 +538,7 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
                       <button
                         onClick={() => {
                           setSelectedBike(bike);
-                          setSelectedImageFile(null); // reset file input
+                          setSelectedImageFile(null);
                           setFormData({
                             ...bike,
                             imageUrl: bike.photos?.[0] || '',
@@ -534,7 +614,7 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
                           <button
                             onClick={() => {
                               setSelectedBike(bike);
-                              setSelectedImageFile(null); // reset file input
+                              setSelectedImageFile(null);
                               setFormData({
                                 ...bike,
                                 imageUrl: bike.photos?.[0] || '',
@@ -573,7 +653,6 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
           maxWidth="2xl"
         >
           <div className="space-y-6 text-sm">
-            {/* Top Status & Financial Badges */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-[#1A1A1A] border border-[#2D2D2D] gap-4">
               <div className="flex items-center gap-3">
                 <Badge status={selectedBike.currentStatus} size="md" />
@@ -592,7 +671,6 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
               </div>
             </div>
 
-            {/* Financial & Depreciation Specs */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="p-5 rounded-2xl bg-[#1A1A1A] border border-[#2D2D2D] space-y-3">
                 <h4 className="font-bold text-sm text-[#D4A017] border-b border-[#2D2D2D] pb-2 mb-3">
@@ -746,7 +824,6 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
               </div>
             </div>
 
-            {/* Nouveau champ pour l'upload d'image */}
             <div className="border-t border-[#2D2D2D] pt-4 mt-2">
               <label className="font-bold text-zinc-300 block mb-1.5 flex items-center gap-1.5">
                 <ImageIcon className="w-4 h-4 text-[#D4A017]" /> {language === 'fr' ? 'Photo de la Moto' : 'Motorcycle Photo'}

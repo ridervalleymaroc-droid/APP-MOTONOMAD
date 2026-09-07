@@ -13,10 +13,10 @@ import {
   formatCurrency, calculateRentalDays, calculateRentalPrice, isMotorcycleAvailable 
 } from '../../utils/calculations';
 import { useLanguage } from '../../context/LanguageContext';
-import { supabase } from '../../services/supabase'; // <-- Import Supabase
+import { supabase } from '../../services/supabase';
 
 interface ReservationsModuleProps {
-  reservations: Reservation[]; // Conservé pour la signature
+  reservations: Reservation[];
   motorcycles: Motorcycle[];
   clients: Client[];
   currency: 'MAD' | 'EUR' | 'USD';
@@ -46,6 +46,7 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
   // ----------------------------------------------------
   const [liveReservations, setLiveReservations] = useState<Reservation[]>([]);
   const [isLoadingDb, setIsLoadingDb] = useState(true);
+  const [syncing, setSyncing] = useState(false); // État pour le bouton de synchronisation
 
   const fetchLiveReservations = async () => {
     try {
@@ -73,11 +74,11 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
         return {
           id: r.id,
           clientId: r.client_id,
-          clientName: client ? client.fullName : 'Client Supprimé/Inconnu',
+          clientName: client ? client.fullName : 'Client Inconnu',
           clientEmail: client ? client.email : '',
           clientPhone: client ? client.phone : '',
           motorcycleId: r.vehicle_id,
-          motorcycleName: bike ? `${bike.brand} ${bike.model}` : 'Moto Supprimée/Inconnue',
+          motorcycleName: bike ? `${bike.brand} ${bike.model}` : 'Moto Inconnue',
           regNumber: bike ? bike.registrationNumber : 'N/A',
           startDate: r.start_date,
           endDate: r.end_date,
@@ -87,7 +88,6 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
           remainingBalance: remainingBalance,
           paymentStatus: payStatus,
           status: r.status as ReservationStatus,
-          // Attributs par défaut pour conformité d'interface
           basePrice: totalPrice,
           extrasPrice: 0,
           discountAmount: 0,
@@ -96,7 +96,7 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
           dropoffLocation: 'Agence',
           bookingSource: 'Direct',
           responsibleEmployee: 'Système',
-          notes: '',
+          notes: r.notes || '',
           createdAt: r.created_at
         } as Reservation;
       });
@@ -110,11 +110,82 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
   };
 
   useEffect(() => {
-    // Si clients ou motos sont chargés depuis le parent, on re-mappe les résas
     if (clients.length > 0 || motorcycles.length > 0) {
       fetchLiveReservations();
     }
   }, [clients, motorcycles]);
+
+  // ----------------------------------------------------
+  // SYNCHRONISATION WORDPRESS INTELLIGENTE
+  // ----------------------------------------------------
+  const handleSyncWordPressBookings = async () => {
+    setSyncing(true);
+    try {
+      const response = await fetch('https://motonomad.ma/wp-json/motonomad/v1/bookings');
+      const wpBookings = await response.json();
+
+      if (!Array.isArray(wpBookings)) {
+        throw new Error('Format de données invalide reçu depuis WordPress');
+      }
+
+      // Il nous faut au moins un client et une moto par défaut pour éviter les erreurs de clés étrangères
+      const defaultBike = motorcycles[0];
+      const defaultClient = clients[0];
+
+      if (!defaultBike || !defaultClient) {
+        throw new Error(language === 'fr' 
+          ? 'Veuillez ajouter au moins un client et une moto dans votre base de données avant de synchroniser les réservations.' 
+          : 'Please add at least one client and one motorcycle first.');
+      }
+
+      for (const b of wpBookings) {
+        // Tag unique pour prévenir les doublons (ex: WP-RES-12)
+        const wpRef = `WP-RES-${b.id}`;
+        const existingRes = liveReservations.find((r) => r.notes && r.notes.includes(wpRef));
+
+        // Mapping des statuts WordPress vers Supabase
+        let statusDB = 'Confirmed';
+        if (b.status === 'cancelled') statusDB = 'Cancelled';
+        else if (b.status === 'pending') statusDB = 'Pending';
+        else if (b.status === 'confirmed') statusDB = 'Confirmed';
+
+        // Tentative de lier au bon client si le nom correspond
+        const matchedClient = clients.find(c => 
+          (b.client_name && c.fullName.toLowerCase() === b.client_name.toLowerCase())
+        ) || defaultClient;
+
+        const payload = {
+          client_id: matchedClient.id,
+          vehicle_id: defaultBike.id, // On utilise la moto par défaut pour l'instant (ID court WP vs UUID)
+          start_date: b.start_date,
+          end_date: b.end_date,
+          total_price: Number(b.total_price) || 0,
+          amount_paid: 0,
+          status: statusDB,
+          notes: `${wpRef} | Client WP: ${b.client_name} | Tel: ${b.client_phone} | Moto ID WP: ${b.bike_id}`
+        };
+
+        if (existingRes) {
+          // Mise à jour (Update)
+          await supabase.from('reservations').update(payload).eq('id', existingRes.id);
+        } else {
+          // Nouvelle insertion (Insert)
+          await supabase.from('reservations').insert([payload]);
+        }
+      }
+
+      alert(language === 'fr' 
+        ? 'Réservations synchronisées avec succès depuis WordPress !' 
+        : 'Bookings successfully synchronized from WordPress!');
+      await fetchLiveReservations();
+      onUpdate();
+    } catch (err: any) {
+      console.error(err);
+      alert((language === 'fr' ? 'Erreur de synchronisation : ' : 'Sync error: ') + err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Handover (Check-in / Check-out) Modal state
   const [handoverRes, setHandoverRes] = useState<{ res: Reservation; mode: 'checkout' | 'checkin' } | null>(null);
@@ -162,7 +233,7 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
     const startDate = formData.startDate || new Date().toISOString().split('T')[0];
     const endDate = formData.endDate || new Date().toISOString().split('T')[0];
 
-    // DOUBLE BOOKING CHECK (vérification contre les résas Cloud)
+    // DOUBLE BOOKING CHECK
     const availCheck = isMotorcycleAvailable(
       bike.id,
       startDate,
@@ -204,7 +275,6 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
         await supabase.from('reservations').insert([payload]);
       }
 
-      // MISE À JOUR AUTO DU STATUT DE LA MOTO
       if (status === 'Active') {
         await supabase.from('vehicles').update({ status: 'RENTED' }).eq('id', bike.id);
       } else if (['Returned', 'Closed', 'Cancelled'].includes(status)) {
@@ -276,7 +346,21 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
               : 'Automatic availability validation, rental contract tracking, check-in/out handovers, and double booking prevention.'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Nouveau Bouton de Synchronisation WordPress */}
+          <button
+            onClick={handleSyncWordPressBookings}
+            disabled={syncing}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#262626] text-[#D4A017] border border-[#333333] hover:bg-[#333333] transition-colors cursor-pointer shadow-md"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            <span>
+              {syncing
+                ? (language === 'fr' ? 'Synchronisation...' : 'Syncing...')
+                : (language === 'fr' ? 'Synchroniser WordPress' : 'Sync WordPress')}
+            </span>
+          </button>
+
           <div className="flex items-center bg-[#262626] border border-[#333333] rounded-xl p-1 text-xs">
             <button
               onClick={() => setViewMode('list')}
@@ -284,7 +368,7 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
                 viewMode === 'list' ? 'bg-[#D4A017] text-[#1C1C1C]' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              <List className="w-3.5 h-3.5" /> {language === 'fr' ? 'Liste des Réservations' : 'Booking List'}
+              <List className="w-3.5 h-3.5" /> {language === 'fr' ? 'Liste' : 'List'}
             </button>
             <button
               onClick={() => setViewMode('calendar')}
@@ -292,7 +376,7 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
                 viewMode === 'calendar' ? 'bg-[#D4A017] text-[#1C1C1C]' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              <Calendar className="w-3.5 h-3.5" /> {language === 'fr' ? 'Vue Calendrier' : 'Calendar View'}
+              <Calendar className="w-3.5 h-3.5" /> {language === 'fr' ? 'Calendrier' : 'Calendar'}
             </button>
           </div>
 
@@ -377,6 +461,9 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
                       <td className="p-4">
                         <span className="font-semibold">{res.motorcycleName}</span>
                         <span className="text-[10px] text-[#D4A017] block font-mono">Reg: {res.regNumber}</span>
+                        {res.notes && res.notes.includes('WP-RES') && (
+                           <span className="text-[9px] text-zinc-500 block">Importé de WordPress</span>
+                        )}
                       </td>
                       <td className="p-4">
                         <span className="font-semibold block">{res.startDate} → {res.endDate}</span>
@@ -504,6 +591,16 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
                 <span className="text-zinc-400 block font-mono">Reg: {selectedRes.regNumber}</span>
               </div>
             </div>
+
+            {/* Note de synchronisation WP s'il y en a une */}
+            {selectedRes.notes && selectedRes.notes.includes('WP-RES') && (
+              <div className="p-3 rounded-xl bg-sky-950/30 border border-sky-800 text-sky-200">
+                <span className="font-bold block text-sky-400 mb-1">Informations WordPress Originales :</span>
+                {selectedRes.notes.split('|').map((notePart, idx) => (
+                  <span key={idx} className="block text-[11px]">• {notePart.trim()}</span>
+                ))}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-3 rounded-xl bg-[#252525] border border-[#333333]">
