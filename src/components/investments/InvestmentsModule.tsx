@@ -9,7 +9,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { supabase } from '../../services/supabase';
 
 interface InvestmentsModuleProps {
-  investments: Investment[]; // Conservé pour la signature React
+  investments: Investment[]; 
   currency: 'MAD' | 'EUR' | 'USD';
   onUpdate: () => void;
 }
@@ -30,23 +30,46 @@ export const InvestmentsModule: React.FC<InvestmentsModuleProps> = ({
   const fetchInvestmentsData = async () => {
     try {
       setIsLoadingDb(true);
-      const { data, error } = await supabase
-        .from('investments')
-        .select('*')
-        .order('investment_date', { ascending: false });
+      
+      // On lance toutes les requêtes en même temps de manière résiliente
+      const [vehResponse, resResponse, maintResponse] = await Promise.all([
+        supabase.from('vehicles').select('*'),
+        supabase.from('reservations').select('*'),
+        supabase.from('maintenance_records').select('*')
+      ]);
 
-      if (error) throw error;
+      const vehiclesData = vehResponse.data || [];
+      const reservationsData = resResponse.data || [];
+      const maintenanceData = maintResponse.data || [];
 
-      const mappedInvestments = (data || []).map((inv: any) => ({
-        id: inv.id,
-        title: inv.title,
-        titleFr: inv.title,
-        investmentType: inv.category || 'Motorcycle',
-        date: inv.investment_date,
-        totalInvestment: Number(inv.total_capital) || 0,
-        actualRevenue: Number(inv.real_revenue) || 0,
-        netProfit: Number(inv.net_profit) || 0,
-      })) as unknown as Investment[]; // Double cast pour résoudre l'erreur TypeScript
+      // Transformer chaque Moto en "Investissement"
+      const mappedInvestments = vehiclesData.map((v: any) => {
+        // 1. Calculer le CA généré par cette moto
+        const bikeReservations = reservationsData.filter((r: any) => r.motorcycle_id === v.id || r.vehicle_id === v.id);
+        const totalRev = bikeReservations.reduce((sum, r) => sum + (Number(r.total_price) || Number(r.totalPrice) || 0), 0);
+
+        // 2. Calculer les frais générés par cette moto
+        const bikeMaintenance = maintenanceData.filter((m: any) => m.vehicle_id === v.id || m.motorcycle_id === v.id);
+        const totalMaint = bikeMaintenance.reduce((sum, m) => sum + (Number(m.cost) || Number(m.amount) || 0), 0);
+
+        // 3. Calculer le bénéfice net
+        const netProfit = totalRev - totalMaint;
+
+        // Le prix d'achat de la moto (s'il n'est pas renseigné, on met 0 par défaut pour éviter les erreurs, 
+        // mais il faudra le remplir dans l'onglet Flotte pour un vrai calcul de ROI)
+        const purchasePrice = Number(v.purchase_price) || 0;
+
+        return {
+          id: v.id,
+          title: `${v.brand || 'Moto'} ${v.model || ''} (${v.registration_number || v.registrationNumber || 'N/A'})`,
+          titleFr: `${v.brand || 'Moto'} ${v.model || ''} (${v.registration_number || v.registrationNumber || 'N/A'})`,
+          investmentType: 'Motorcycle',
+          date: v.purchase_date || v.created_at || new Date().toISOString().split('T')[0],
+          totalInvestment: purchasePrice,
+          actualRevenue: totalRev,
+          netProfit: netProfit,
+        } as unknown as Investment;
+      });
 
       setLiveInvestments(mappedInvestments);
     } catch (error) {
@@ -144,6 +167,7 @@ export const InvestmentsModule: React.FC<InvestmentsModuleProps> = ({
       </div>
 
       {/* Active Investments */}
+      {/* Active Investments */}
       {activeTab === 'portfolio' && (
         liveInvestments.length === 0 ? (
           <div className="p-8 text-center text-zinc-500 bg-[#1C1C1C] rounded-2xl border border-[#2D2D2D]">
@@ -152,8 +176,29 @@ export const InvestmentsModule: React.FC<InvestmentsModuleProps> = ({
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {liveInvestments.map((inv) => {
-              const metrics = calculateInvestmentMetrics(inv);
+              const netProfit = (inv as any).netProfit || 0;
+              const totalInv = inv.totalInvestment || 0;
               
+              // 1. Calcul du ROI direct
+              const calculatedRoi = totalInv > 0 ? ((netProfit / totalInv) * 100).toFixed(1) : "0.0";
+              
+              // 2. Calcul de l'Amortissement dynamique (estimation en mois)
+              let paybackText = "N/A";
+              if (totalInv > 0 && netProfit > 0) {
+                const dateAjout = new Date(inv.date).getTime();
+                const now = new Date().getTime();
+                // Nombre de jours d'activité (minimum 1 jour pour éviter l'infini)
+                const daysActive = Math.max(1, Math.floor((now - dateAjout) / (1000 * 60 * 60 * 24)));
+                
+                // Profit estimé lissé sur un mois (30 jours)
+                const monthlyProfitEst = (netProfit / daysActive) * 30; 
+                
+                if (monthlyProfitEst > 0) {
+                  const monthsToRecover = (totalInv / monthlyProfitEst).toFixed(1);
+                  paybackText = `${monthsToRecover}`;
+                }
+              }
+
               let typeLabel: string = inv.investmentType;
               if (language === 'fr') {
                 if (typeLabel === 'Motorcycle') typeLabel = 'Moto';
@@ -162,43 +207,47 @@ export const InvestmentsModule: React.FC<InvestmentsModuleProps> = ({
               }
 
               return (
-                <div key={inv.id} className="p-6 rounded-2xl bg-[#1C1C1C] border border-[#2D2D2D] shadow-xl space-y-4">
+                <div key={inv.id} className="p-6 rounded-2xl bg-[#1C1C1C] border border-[#2D2D2D] shadow-xl space-y-4 hover:border-[#D4A017]/40 transition-colors">
                   <div>
                     <span className="text-[10px] uppercase font-bold text-[#D4A017] block">{typeLabel}</span>
                     <h3 className="font-bold text-base text-[#F4F4F2] mt-0.5">
                       {language === 'fr' ? (inv as any).titleFr || inv.title : inv.title}
                     </h3>
                     <span className="text-xs text-zinc-400">
-                      {language === 'fr' ? 'Date :' : 'Date:'} {inv.date}
+                      {language === 'fr' ? 'Date d\'ajout :' : 'Added on:'} {inv.date}
                     </span>
                   </div>
 
                   <div className="p-3 rounded-xl bg-[#222222] border border-[#333333] space-y-2 text-xs">
                     <div className="flex justify-between">
-                      <span className="text-zinc-400">{language === 'fr' ? 'Capital Total :' : 'Total Capital:'}</span>
-                      <span className="font-bold text-[#F4F4F2]">{formatCurrency(inv.totalInvestment, currency)}</span>
+                      <span className="text-zinc-400">{language === 'fr' ? 'Coût d\'Achat :' : 'Purchase Cost:'}</span>
+                      <span className="font-bold text-[#F4F4F2]">
+                        {totalInv > 0 ? formatCurrency(totalInv, currency) : 'À renseigner'}
+                      </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-zinc-400">{language === 'fr' ? 'Revenu Réel :' : 'Actual Revenue:'}</span>
+                      <span className="text-zinc-400">{language === 'fr' ? 'CA Généré :' : 'Actual Revenue:'}</span>
                       <span className="font-bold text-emerald-400">{formatCurrency(inv.actualRevenue, currency)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-zinc-400">{language === 'fr' ? 'Bénéfice Net :' : 'Net Profit:'}</span>
-                      <span className="font-bold text-[#D4A017]">{formatCurrency(metrics.netProfit, currency)}</span>
+                      <span className="font-bold text-[#D4A017]">{formatCurrency(netProfit, currency)}</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-center text-xs">
                     <div className="p-2.5 rounded-xl bg-[#252525] border border-[#333333]">
                       <span className="text-[10px] uppercase font-bold text-zinc-400 block">ROI</span>
-                      <span className="font-black text-emerald-400 text-sm">+{metrics.roi}%</span>
+                      <span className="font-black text-emerald-400 text-sm">
+                        {totalInv > 0 ? `+${calculatedRoi}%` : 'N/A'}
+                      </span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-[#252525] border border-[#333333]">
                       <span className="text-[10px] uppercase font-bold text-zinc-400 block">
                         {language === 'fr' ? 'Amortissement' : 'Payback'}
                       </span>
                       <span className="font-black text-[#D4A017] text-sm">
-                        {metrics.paybackPeriodMonths} {language === 'fr' ? 'Mois' : 'Months'}
+                        {paybackText !== "N/A" ? `${paybackText} ${language === 'fr' ? 'Mois' : 'Months'}` : 'N/A'}
                       </span>
                     </div>
                   </div>
