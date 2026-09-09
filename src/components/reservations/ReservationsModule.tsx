@@ -433,7 +433,7 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
             onClick={handleOpenAdd}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-[#D4A017] text-[#1C1C1C] hover:bg-[#b88a10] transition-colors shadow-lg shadow-[#D4A017]/10 cursor-pointer"
           >
-            <Plus className="w-4 h-4 stroke-[3]" /> {language === 'fr' ? 'Nouvelle Réservation' : 'New Reservation'}
+            <Plus className="w-4 h-4 stroke-3" /> {language === 'fr' ? 'Nouvelle Réservation' : 'New Reservation'}
           </button>
         </div>
       </div>
@@ -480,7 +480,7 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
         ) : (
           <div className="rounded-2xl border border-[#2D2D2D] bg-[#1C1C1C] overflow-hidden shadow-xl w-full">
             <div className="overflow-x-auto custom-scrollbar pb-2">
-              <table className="w-full text-left text-xs text-[#F4F4F2] min-w-[1000px]">
+              <table className="w-full text-left text-xs text-[#F4F4F2] min-w-250">
                 <thead className="bg-[#222222] border-b border-[#2D2D2D] text-zinc-400 font-bold uppercase tracking-wider">
                   <tr>
                     <th className="p-4">{language === 'fr' ? 'ID / STATUT' : 'BOOKING ID / STATUS'}</th>

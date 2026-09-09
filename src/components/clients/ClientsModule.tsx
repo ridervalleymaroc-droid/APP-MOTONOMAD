@@ -321,7 +321,7 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
             onClick={handleOpenAdd}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-[#D4A017] text-[#1C1C1C] hover:bg-[#b88a10] hover:scale-[1.02] transition-all shadow-lg shadow-[#D4A017]/20 cursor-pointer"
           >
-            <Plus className="w-4 h-4 stroke-[3]" /> {language === 'fr' ? 'Nouveau Client' : 'New Client'}
+            <Plus className="w-4 h-4 stroke-3" /> {language === 'fr' ? 'Nouveau Client' : 'New Client'}
           </button>
         </div>
       </div>
@@ -338,7 +338,7 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
             className="w-full px-3 py-2 bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none"
           />
         </div>
-        <div className="w-full sm:w-[1px] h-[1px] sm:h-8 bg-[#333333] shrink-0" />
+        <div className="w-full sm:w-px h-px sm:h-8 bg-[#333333] shrink-0" />
         <div className="flex items-center gap-2 w-full sm:w-auto px-2">
           <Filter className="w-4 h-4 text-zinc-500 shrink-0" />
           <select
@@ -382,12 +382,12 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
                   {filteredClients.map((client) => (
                     <tr
                       key={client.id}
-                      className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
+                      className="hover:bg-white/2 transition-colors cursor-pointer group"
                       onClick={() => setSelectedClient(client)}
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3.5">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2D2D2D] to-[#1A1A1A] text-[#D4A017] font-bold border border-[#383838] shadow-sm">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-[#2D2D2D] to-[#1A1A1A] text-[#D4A017] font-bold border border-[#383838] shadow-sm">
                             {client.firstName.charAt(0)}{client.lastName.charAt(0)}
                           </div>
                           <div>
@@ -400,7 +400,7 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-2 text-zinc-300 text-xs">
                             <Mail className="w-3.5 h-3.5 text-zinc-500" /> 
-                            <span className="truncate max-w-[150px]" title={client.email}>{client.email}</span>
+                            <span className="truncate max-w-37.5" title={client.email}>{client.email}</span>
                           </div>
                           <div className="flex items-center gap-2 text-zinc-300 text-xs">
                             <Phone className="w-3.5 h-3.5 text-zinc-500" /> 
@@ -521,7 +521,7 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
 
             {selectedClient.notes && (
               <div className="p-4 rounded-xl bg-[#222222] border border-[#333333] text-sm">
-                <span className="font-bold text-[#D4A017] block mb-2 flex items-center gap-2"><FileText className="w-4 h-4"/> {language === 'fr' ? 'Notes du Pilote :' : 'Rider Notes:'}</span>
+                <span className="font-bold text-[#D4A017] mb-2 flex items-center gap-2"><FileText className="w-4 h-4"/> {language === 'fr' ? 'Notes du Pilote :' : 'Rider Notes:'}</span>
                 <p className="text-zinc-300 leading-relaxed bg-[#1A1A1A] p-3 rounded-lg border border-[#2D2D2D]">{selectedClient.notes}</p>
               </div>
             )}

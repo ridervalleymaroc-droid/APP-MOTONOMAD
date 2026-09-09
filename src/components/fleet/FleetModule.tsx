@@ -417,7 +417,7 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
             onClick={handleOpenAdd}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-[#D4A017] text-[#1C1C1C] hover:bg-[#b88a10] hover:scale-[1.02] transition-all shadow-lg shadow-[#D4A017]/20 cursor-pointer"
           >
-            <Plus className="w-4 h-4 stroke-[3]" /> {language === 'fr' ? 'Ajouter une Moto' : 'Add Vehicle'}
+            <Plus className="w-4 h-4 stroke-3" /> {language === 'fr' ? 'Ajouter une Moto' : 'Add Vehicle'}
           </button>
         </div>
       </div>
@@ -434,7 +434,7 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
             className="w-full px-3 py-2 bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none"
           />
         </div>
-        <div className="w-full sm:w-[1px] h-[1px] sm:h-8 bg-[#333333] shrink-0" />
+        <div className="w-full sm:w-px h-px sm:h-8 bg-[#333333] shrink-0" />
         <div className="flex items-center gap-2 w-full sm:w-auto px-2">
           <Filter className="w-4 h-4 text-zinc-500 shrink-0" />
           <select
@@ -480,7 +480,7 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
                       alt={`${bike.brand} ${bike.model}`}
                       className="w-full h-full object-cover opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-transparent to-transparent opacity-80"></div>
+                    <div className="absolute inset-0 bg-linear-to-t from-[#181818] via-transparent to-transparent opacity-80"></div>
                     
                     <div className="absolute top-3 left-3">
                       <Badge status={bike.currentStatus} size="sm" />
@@ -587,7 +587,7 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
                   return (
                     <tr
                       key={bike.id}
-                      className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
+                      className="hover:bg-white/2 transition-colors cursor-pointer group"
                       onClick={() => setSelectedBike(bike)}
                     >
                       <td className="px-6 py-4">
@@ -663,7 +663,7 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
                   <span className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 block mb-0.5">{language === 'fr' ? 'Tarif Journalier' : 'Daily Rental'}</span>
                   <span className="font-black text-base text-[#D4A017]">{formatCurrency(selectedBike.dailyPrice, currency)}</span>
                 </div>
-                <div className="w-[1px] h-8 bg-[#333]"></div>
+                <div className="w-px h-8 bg-[#333]"></div>
                 <div>
                   <span className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 block mb-0.5">{language === 'fr' ? 'Revenu Total' : 'Total Revenue'}</span>
                   <span className="font-black text-base text-emerald-400">{formatCurrency(selectedBike.totalRevenue, currency)}</span>
@@ -825,7 +825,7 @@ export const FleetModule: React.FC<FleetModuleProps> = ({
             </div>
 
             <div className="border-t border-[#2D2D2D] pt-4 mt-2">
-              <label className="font-bold text-zinc-300 block mb-1.5 flex items-center gap-1.5">
+              <label className="font-bold text-zinc-300 block mb-1.5 items-center gap-1.5">
                 <ImageIcon className="w-4 h-4 text-[#D4A017]" /> {language === 'fr' ? 'Photo de la Moto' : 'Motorcycle Photo'}
               </label>
               <div className="flex flex-col sm:flex-row items-center gap-4">

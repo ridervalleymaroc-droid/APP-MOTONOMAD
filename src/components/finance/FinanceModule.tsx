@@ -274,7 +274,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
               onClick={() => setIsAddRevenueOpen(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-[#D4A017] text-[#1C1C1C] hover:bg-[#b88a10] cursor-pointer"
             >
-              <Plus className="w-4 h-4 stroke-[3]" /> {language === 'fr' ? 'Ajouter un Revenu' : 'Add Revenue'}
+              <Plus className="w-4 h-4 stroke-3" /> {language === 'fr' ? 'Ajouter un Revenu' : 'Add Revenue'}
             </button>
           )}
           {activeTab === 'expenses' && (
@@ -282,7 +282,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
               onClick={() => setIsAddExpenseOpen(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-500 cursor-pointer"
             >
-              <Plus className="w-4 h-4 stroke-[3]" /> {language === 'fr' ? 'Ajouter une Dépense' : 'Add Expense'}
+              <Plus className="w-4 h-4 stroke-3" /> {language === 'fr' ? 'Ajouter une Dépense' : 'Add Expense'}
             </button>
           )}
         </div>
@@ -292,7 +292,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
       {activeTab === 'revenues' && (
         <div className="rounded-2xl border border-[#2D2D2D] bg-[#1C1C1C] overflow-hidden shadow-xl">
           <div className="w-full overflow-x-auto custom-scrollbar pb-2">
-            <table className="w-full text-left text-xs text-[#F4F4F2] min-w-[800px]">
+            <table className="w-full text-left text-xs text-[#F4F4F2] min-w-200">
               <thead className="bg-[#222222] border-b border-[#2D2D2D] text-zinc-400 font-bold uppercase">
                 <tr>
                   <th className="p-4">{language === 'fr' ? 'Date' : 'Date'}</th>
@@ -332,7 +332,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
       {activeTab === 'expenses' && (
         <div className="rounded-2xl border border-[#2D2D2D] bg-[#1C1C1C] overflow-hidden shadow-xl">
           <div className="w-full overflow-x-auto custom-scrollbar pb-2">
-            <table className="w-full text-left text-xs text-[#F4F4F2] min-w-[800px]">
+            <table className="w-full text-left text-xs text-[#F4F4F2] min-w-200">
               <thead className="bg-[#222222] border-b border-[#2D2D2D] text-zinc-400 font-bold uppercase">
                 <tr>
                   <th className="p-4">{language === 'fr' ? 'Date' : 'Date'}</th>
