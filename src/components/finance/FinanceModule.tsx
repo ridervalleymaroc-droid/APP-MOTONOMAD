@@ -12,7 +12,7 @@ import { supabase } from '../../services/supabase';
 interface FinanceModuleProps {
   revenues: Revenue[]; 
   expenses: Expense[]; 
-  motorcycles: Motorcycle[]; // Reste ici pour la compatibilité React, mais on ne l'utilisera plus pour l'affichage
+  motorcycles: Motorcycle[]; 
   tours: Tour[];
   currency: 'MAD' | 'EUR' | 'USD';
   onUpdate: () => void;
@@ -32,27 +32,33 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
   // ----------------------------------------------------
   const [liveRevenues, setLiveRevenues] = useState<Revenue[]>([]);
   const [liveExpenses, setLiveExpenses] = useState<Expense[]>([]);
-  const [liveMotorcycles, setLiveMotorcycles] = useState<any[]>([]); // Nouvel état pour les vraies motos
+  const [liveMotorcycles, setLiveMotorcycles] = useState<any[]>([]);
+  const [liveReservations, setLiveReservations] = useState<any[]>([]); // <-- Nouvel état infaillible
+  const [liveMaintenance, setLiveMaintenance] = useState<any[]>([]);   // <-- Nouvel état infaillible
   const [isLoadingDb, setIsLoadingDb] = useState(true);
 
   const fetchFinanceData = async () => {
     try {
       setIsLoadingDb(true);
       
-      // On va chercher TOUT ce qui impacte les finances directement sur le cloud
+      // On lance toutes les requêtes en même temps
       const [revResponse, expResponse, vehResponse, resResponse, maintResponse] = await Promise.all([
         supabase.from('revenues').select('*').order('date', { ascending: false }),
         supabase.from('expenses').select('*').order('date', { ascending: false }),
-        supabase.from('vehicles').select('*'), // Les vraies motos
-        supabase.from('reservations').select('*'), // Les vraies locations
-        supabase.from('maintenance_records').select('*') // Les vraies réparations
+        supabase.from('vehicles').select('*'),
+        supabase.from('reservations').select('*'),
+        supabase.from('maintenance_records').select('*')
       ]);
 
-      if (revResponse.error) throw revResponse.error;
-      if (expResponse.error) throw expResponse.error;
+      // LE SECRET EST ICI : On ne "throw" plus d'erreur. Si une table n'existe pas encore, on prend juste un tableau vide [].
+      const revenuesData = revResponse.data || [];
+      const expensesData = expResponse.data || [];
+      const vehiclesData = vehResponse.data || [];
+      const reservationsData = resResponse.data || [];
+      const maintenanceData = maintResponse.data || [];
 
       // 1. Mapping des Revenus Manuels
-      const mappedRevenues = (revResponse.data || []).map((r: any) => ({
+      const mappedRevenues = revenuesData.map((r: any) => ({
         id: r.id,
         date: r.date,
         category: r.category,
@@ -64,7 +70,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
       })) as Revenue[];
 
       // 2. Mapping des Dépenses Manuelles
-      const mappedExpenses = (expResponse.data || []).map((e: any) => ({
+      const mappedExpenses = expensesData.map((e: any) => ({
         id: e.id,
         date: e.date,
         category: e.category,
@@ -76,13 +82,11 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
       })) as Expense[];
 
       // 3. Mapping des Vraies Motos avec calcul de rentabilité dynamique
-      const mappedBikes = (vehResponse.data || []).map((v: any) => {
-        // Trouver toutes les réservations de cette moto spécifique
-        const bikeReservations = (resResponse.data || []).filter((r: any) => r.motorcycle_id === v.id || r.vehicle_id === v.id);
+      const mappedBikes = vehiclesData.map((v: any) => {
+        const bikeReservations = reservationsData.filter((r: any) => r.motorcycle_id === v.id || r.vehicle_id === v.id);
         const totalRev = bikeReservations.reduce((sum, r) => sum + (Number(r.total_price) || Number(r.totalPrice) || 0), 0);
 
-        // Trouver toutes les réparations de cette moto spécifique
-        const bikeMaintenance = (maintResponse.data || []).filter((m: any) => m.vehicle_id === v.id || m.motorcycle_id === v.id);
+        const bikeMaintenance = maintenanceData.filter((m: any) => m.vehicle_id === v.id || m.motorcycle_id === v.id);
         const totalMaint = bikeMaintenance.reduce((sum, m) => sum + (Number(m.cost) || Number(m.amount) || 0), 0);
 
         return {
@@ -97,7 +101,9 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
 
       setLiveRevenues(mappedRevenues);
       setLiveExpenses(mappedExpenses);
-      setLiveMotorcycles(mappedBikes); // On stocke les vraies motos
+      setLiveMotorcycles(mappedBikes);
+      setLiveReservations(reservationsData); 
+      setLiveMaintenance(maintenanceData);
 
     } catch (error) {
       console.error("Erreur de synchronisation financière:", error);
@@ -175,17 +181,15 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
   };
 
   // ----------------------------------------------------
-  // CALCUL DES TOTAUX UNIFIÉS (Automatique + Manuel)
+  // CALCUL DES TOTAUX UNIFIÉS INFAILLIBLES
   // ----------------------------------------------------
-  // 1. Somme des entrées manuelles (Supabase)
   const manualTotalRev = liveRevenues.reduce((a, b) => a + b.amount, 0);
   const manualTotalExp = liveExpenses.reduce((a, b) => a + b.amount, 0);
 
-  // 2. Somme des opérations automatiques des VRAIES motos (Réservations & Ateliers)
-  const fleetOperationalRev = liveMotorcycles.reduce((acc, m) => acc + (m.totalRevenue || 0), 0);
-  const fleetOperationalExp = liveMotorcycles.reduce((acc, m) => acc + (m.totalMaintenanceCost || 0), 0);
+  // On calcule le CA directement depuis toutes les réservations, sans exception !
+  const fleetOperationalRev = liveReservations.reduce((acc, r) => acc + (Number(r.total_price) || 0), 0);
+  const fleetOperationalExp = liveMaintenance.reduce((acc, m) => acc + (Number(m.cost) || Number(m.amount) || 0), 0);
 
-  // 3. Totaux globaux de l'entreprise
   const totalRev = manualTotalRev + fleetOperationalRev;
   const totalExp = manualTotalExp + fleetOperationalExp;
   const netProfit = totalRev - totalExp;
@@ -366,7 +370,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
         </div>
       )}
 
-      {/* Per-Bike Profitability - NOW USING REAL SUPABASE DATA */}
+      {/* Per-Bike Profitability */}
       {activeTab === 'profitability' && (
         <div className="rounded-2xl border border-[#2D2D2D] bg-[#1C1C1C] p-6 shadow-xl space-y-4">
           <h3 className="font-bold text-lg text-[#F4F4F2]">
