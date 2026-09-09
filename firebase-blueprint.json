@@ -1,0 +1,313 @@
+{
+  "collections": {
+    "users": {
+      "schema": {
+        "email": "string",
+        "displayName": "string",
+        "role": "string",
+        "phone": "string",
+        "avatarUrl": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "clients": {
+      "schema": {
+        "firstName": "string",
+        "lastName": "string",
+        "fullName": "string",
+        "nationality": "string",
+        "dateOfBirth": "string",
+        "phone": "string",
+        "whatsapp": "string",
+        "email": "string",
+        "address": "string",
+        "country": "string",
+        "passportNumber": "string",
+        "passportExpiry": "string",
+        "licenseNumber": "string",
+        "licenseIssueDate": "string",
+        "licenseExpiry": "string",
+        "licenseCategory": "string",
+        "emergencyContact": "string",
+        "notes": "string",
+        "passportUrl": "string",
+        "licenseUrl": "string",
+        "totalSpent": "number",
+        "bookingsCount": "number",
+        "avgBookingValue": "number",
+        "lifetimeValue": "number",
+        "damageHistory": "array",
+        "createdAt": "timestamp",
+        "createdBy": "string"
+      }
+    },
+    "motorcycles": {
+      "schema": {
+        "brand": "string",
+        "model": "string",
+        "version": "string",
+        "year": "number",
+        "registrationNumber": "string",
+        "vin": "string",
+        "color": "string",
+        "category": "string",
+        "engineSize": "number",
+        "purchaseDate": "string",
+        "purchasePrice": "number",
+        "residualValue": "number",
+        "usefulLifeYears": "number",
+        "depreciationMethod": "string",
+        "currentMileage": "number",
+        "currentStatus": "string",
+        "currentLocation": "string",
+        "supplier": "string",
+        "insuranceCompany": "string",
+        "insurancePolicyNumber": "string",
+        "insuranceExpiry": "string",
+        "techInspectionExpiry": "string",
+        "dailyPrice": "number",
+        "weeklyPrice": "number",
+        "monthlyPrice": "number",
+        "depositAmount": "number",
+        "notes": "string",
+        "photos": "array",
+        "totalRevenue": "number",
+        "totalMaintenanceCost": "number",
+        "currentBookValue": "number",
+        "estimatedMarketValue": "number",
+        "createdAt": "timestamp"
+      }
+    },
+    "reservations": {
+      "schema": {
+        "clientId": "string",
+        "clientName": "string",
+        "clientEmail": "string",
+        "clientPhone": "string",
+        "motorcycleId": "string",
+        "motorcycleName": "string",
+        "regNumber": "string",
+        "startDate": "string",
+        "endDate": "string",
+        "rentalDays": "number",
+        "pickupLocation": "string",
+        "dropoffLocation": "string",
+        "basePrice": "number",
+        "extrasPrice": "number",
+        "discountAmount": "number",
+        "taxAmount": "number",
+        "totalPrice": "number",
+        "depositAmount": "number",
+        "amountPaid": "number",
+        "remainingBalance": "number",
+        "paymentStatus": "string",
+        "bookingSource": "string",
+        "responsibleEmployee": "string",
+        "status": "string",
+        "notes": "string",
+        "contractUrl": "string",
+        "checkoutInfo": "map",
+        "checkinInfo": "map",
+        "createdAt": "timestamp"
+      }
+    },
+    "revenues": {
+      "schema": {
+        "date": "string",
+        "category": "string",
+        "amount": "number",
+        "currency": "string",
+        "description": "string",
+        "relatedMotorcycleId": "string",
+        "relatedReservationId": "string",
+        "relatedTourId": "string",
+        "paymentMethod": "string",
+        "receiptUrl": "string",
+        "createdBy": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "expenses": {
+      "schema": {
+        "date": "string",
+        "category": "string",
+        "amount": "number",
+        "currency": "string",
+        "description": "string",
+        "relatedMotorcycleId": "string",
+        "relatedReservationId": "string",
+        "relatedTourId": "string",
+        "supplier": "string",
+        "paymentMethod": "string",
+        "invoiceUrl": "string",
+        "createdBy": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "maintenance": {
+      "schema": {
+        "motorcycleId": "string",
+        "motorcycleName": "string",
+        "regNumber": "string",
+        "serviceDate": "string",
+        "mileage": "number",
+        "serviceType": "string",
+        "description": "string",
+        "partsCost": "number",
+        "laborCost": "number",
+        "totalCost": "number",
+        "workshopSupplier": "string",
+        "nextServiceDate": "string",
+        "nextServiceMileage": "number",
+        "documents": "array",
+        "notes": "string",
+        "status": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "investments": {
+      "schema": {
+        "title": "string",
+        "investmentType": "string",
+        "date": "string",
+        "supplier": "string",
+        "purchasePrice": "number",
+        "additionalCosts": "number",
+        "totalInvestment": "number",
+        "expectedUsefulLifeYears": "number",
+        "expectedRevenuePerMonth": "number",
+        "actualRevenue": "number",
+        "operatingCosts": "number",
+        "currentEstimatedValue": "number",
+        "status": "string",
+        "notes": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "tours": {
+      "schema": {
+        "name": "string",
+        "startDate": "string",
+        "endDate": "string",
+        "route": "string",
+        "durationDays": "number",
+        "maxRiders": "number",
+        "minRiders": "number",
+        "pricePerRider": "number",
+        "guideName": "string",
+        "status": "string",
+        "notes": "string",
+        "itinerary": "array",
+        "coverPhoto": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "tourParticipants": {
+      "schema": {
+        "tourId": "string",
+        "tourName": "string",
+        "clientId": "string",
+        "clientName": "string",
+        "motorcycleId": "string",
+        "motorcycleName": "string",
+        "price": "number",
+        "amountPaid": "number",
+        "paymentStatus": "string",
+        "emergencyContact": "string",
+        "ridingGearAssigned": "string",
+        "status": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "equipment": {
+      "schema": {
+        "name": "string",
+        "type": "string",
+        "brand": "string",
+        "model": "string",
+        "serialNumber": "string",
+        "purchasePrice": "number",
+        "purchaseDate": "string",
+        "condition": "string",
+        "status": "string",
+        "assignedMotorcycleId": "string",
+        "assignedClientId": "string",
+        "dailyPrice": "number",
+        "createdAt": "timestamp"
+      }
+    },
+    "agencies": {
+      "schema": {
+        "agencyName": "string",
+        "country": "string",
+        "contactPerson": "string",
+        "email": "string",
+        "phone": "string",
+        "whatsapp": "string",
+        "commissionPercentage": "number",
+        "contractUrl": "string",
+        "paymentTerms": "string",
+        "totalBookings": "number",
+        "totalRevenue": "number",
+        "outstandingPayments": "number",
+        "notes": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "suppliers": {
+      "schema": {
+        "supplierName": "string",
+        "category": "string",
+        "contactPerson": "string",
+        "phone": "string",
+        "email": "string",
+        "productsServices": "string",
+        "totalPurchases": "number",
+        "outstandingPayments": "number",
+        "notes": "string",
+        "createdAt": "timestamp"
+      }
+    },
+    "notifications": {
+      "schema": {
+        "type": "string",
+        "title": "string",
+        "message": "string",
+        "link": "string",
+        "read": "boolean",
+        "createdAt": "timestamp"
+      }
+    },
+    "auditLogs": {
+      "schema": {
+        "timestamp": "timestamp",
+        "userId": "string",
+        "userName": "string",
+        "userRole": "string",
+        "action": "string",
+        "module": "string",
+        "recordId": "string",
+        "details": "string",
+        "previousValue": "string",
+        "newValue": "string"
+      }
+    },
+    "settings": {
+      "schema": {
+        "companyName": "string",
+        "phone": "string",
+        "email": "string",
+        "address": "string",
+        "defaultCurrency": "string",
+        "EURToMADRate": "number",
+        "USDToMADRate": "number",
+        "taxRate": "number",
+        "depositPolicy": "string",
+        "rentalTerms": "string",
+        "defaultUsefulLifeYears": "number",
+        "defaultResidualValuePercent": "number",
+        "updatedAt": "timestamp"
+      }
+    }
+  }
+}

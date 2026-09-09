@@ -1,0 +1,6 @@
+{
+  "name": "Motonomad Management",
+  "description": "Internal business management platform for Motonomad motorcycle rentals and adventure tours in Morocco.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

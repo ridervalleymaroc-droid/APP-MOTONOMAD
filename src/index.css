@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #121212;
+    color: #F4F4F2;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  }
+}
+
+/* Custom Scrollbar for Sophisticated Dark Theme */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #181818;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #333333;
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #D4A017;
+}
+
+/* Glass & Glow utilities */
+.gold-glow {
+  box-shadow: 0 0 20px -5px rgba(212, 160, 23, 0.25);
+}
+
+.gold-border-glow {
+  box-shadow: 0 0 12px 0 rgba(212, 160, 23, 0.15);
+}
+
+/* Premium SaaS Animations */
+@layer components {
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in-up {
+    animation: fadeInUp 500ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    opacity: 0;
+  }
+
+  .animation-delay-0 { animation-delay: 0ms; }
+  .animation-delay-100 { animation-delay: 100ms; }
+  .animation-delay-200 { animation-delay: 200ms; }
+  .animation-delay-300 { animation-delay: 300ms; }
+
+  @keyframes slideInBar {
+    from { width: 0%; }
+    to { width: var(--bar-width, 100%); }
+  }
+
+  .animate-bar-fill {
+    animation: slideInBar 1000ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    width: 0%;
+  }
+
+  .bar-transition {
+    transition: width 1000ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .card-hover-premium {
+    transition: all 300ms ease-out;
+  }
+
+  .card-hover-premium:hover {
+    transform: translateY(-0.25rem);
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+  }
+
+  .premium-spotlight-card {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .premium-spotlight-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    background: radial-gradient(
+      circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+      rgba(212, 160, 23, 0.12),
+      rgba(212, 160, 23, 0.06) 30%,
+      transparent 70%
+    );
+    opacity: 0;
+    transition: opacity 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 1;
+  }
+
+  .premium-spotlight-card:hover::before {
+    opacity: 1;
+  }
+
+  .premium-spotlight-card > * {
+    position: relative;
+    z-index: 2;
+  }
+}
+
+/* --- Style de contrôle strict pour la carte d'action rapide --- */
+.quick-action-overlay {
+  transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.quick-action-overlay.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.quick-action-card {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+.quick-action-overlay.is-visible .quick-action-card {
+  opacity: 1;
+  transform: scale(1);
+}
