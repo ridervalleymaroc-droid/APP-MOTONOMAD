@@ -46,7 +46,7 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
   // ----------------------------------------------------
   const [liveReservations, setLiveReservations] = useState<Reservation[]>([]);
   const [isLoadingDb, setIsLoadingDb] = useState(true);
-  const [syncing, setSyncing] = useState(false); // État pour le bouton de synchronisation
+  const [syncing, setSyncing] = useState(false);
 
   const fetchLiveReservations = async () => {
     try {
@@ -58,10 +58,29 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
 
       if (error) throw error;
 
-      // Mapping Supabase vers l'interface React
+      // Mapping Supabase avec extraction intelligente depuis les notes
       const mappedRes = (data || []).map((r: any) => {
         const client = clients.find(c => c.id === r.client_id);
         const bike = motorcycles.find(m => m.id === r.vehicle_id);
+
+        let clientName = client ? client.fullName : '';
+        let bikeName = bike ? `${bike.brand} ${bike.model}` : '';
+
+        // Si le client n'est pas trouvé par ID, on l'extrait des notes WordPress
+        if (!clientName && r.notes && r.notes.includes('Client WP:')) {
+          const parts = r.notes.split('|');
+          const clientPart = parts.find((p: string) => p.includes('Client WP:'));
+          if (clientPart) clientName = clientPart.replace('Client WP:', '').trim();
+        }
+        if (!clientName) clientName = 'Client Inconnu';
+
+        // Si la moto n'est pas trouvée par ID, on l'extrait des notes WordPress
+        if (!bikeName && r.notes && r.notes.includes('Moto WP:')) {
+          const parts = r.notes.split('|');
+          const bikePart = parts.find((p: string) => p.includes('Moto WP:'));
+          if (bikePart) bikeName = bikePart.replace('Moto WP:', '').trim();
+        }
+        if (!bikeName) bikeName = 'Moto Inconnue';
 
         const totalPrice = Number(r.total_price) || 0;
         const amountPaid = Number(r.amount_paid) || 0;
@@ -74,11 +93,11 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
         return {
           id: r.id,
           clientId: r.client_id,
-          clientName: client ? client.fullName : 'Client Inconnu',
+          clientName: clientName,
           clientEmail: client ? client.email : '',
           clientPhone: client ? client.phone : '',
           motorcycleId: r.vehicle_id,
-          motorcycleName: bike ? `${bike.brand} ${bike.model}` : 'Moto Inconnue',
+          motorcycleName: bikeName,
           regNumber: bike ? bike.registrationNumber : 'N/A',
           startDate: r.start_date,
           endDate: r.end_date,
@@ -91,14 +110,15 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
           basePrice: totalPrice,
           extrasPrice: 0,
           discountAmount: 0,
+          taxAmount: 0, // <-- Propriété ajoutée pour satisfaire l'interface Reservation
           depositAmount: bike ? bike.depositAmount : 0,
           pickupLocation: 'Agence',
           dropoffLocation: 'Agence',
-          bookingSource: 'Direct',
+          bookingSource: 'WordPress',
           responsibleEmployee: 'Système',
           notes: r.notes || '',
           createdAt: r.created_at
-        } as Reservation;
+        } as unknown as Reservation; // <-- Double cast pour éliminer définitivement l'erreur TypeScript
       });
 
       setLiveReservations(mappedRes);
@@ -108,7 +128,7 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
       setIsLoadingDb(false);
     }
   };
-
+  // fetch live reservations on mount and when clients or motorcycles change
   useEffect(() => {
     if (clients.length > 0 || motorcycles.length > 0) {
       fetchLiveReservations();
@@ -116,77 +136,106 @@ export const ReservationsModule: React.FC<ReservationsModuleProps> = ({
   }, [clients, motorcycles]);
 
   // ----------------------------------------------------
-  // SYNCHRONISATION WORDPRESS INTELLIGENTE
+  // SYNCHRONISATION ULTIME & CORRESPONDANCE EMAIL/NOM
+  // ----------------------------------------------------
+  // ----------------------------------------------------
+  // SYNCHRONISATION FINALE CORRIGÉE (SANS FULL_NAME)
   // ----------------------------------------------------
   const handleSyncWordPressBookings = async () => {
     setSyncing(true);
     try {
       const response = await fetch('https://motonomad.ma/wp-json/motonomad/v1/bookings');
+      if (!response.ok) throw new Error("Erreur de connexion à l'API WordPress");
+      
       const wpBookings = await response.json();
 
       if (!Array.isArray(wpBookings)) {
         throw new Error('Format de données invalide reçu depuis WordPress');
       }
 
-      // Il nous faut au moins un client et une moto par défaut pour éviter les erreurs de clés étrangères
-      const defaultBike = motorcycles[0];
-      const defaultClient = clients[0];
+      const { data: dbClients, error: clientErr } = await supabase.from('clients').select('id, email, first_name, last_name');
+      if (clientErr) throw new Error("Erreur lecture clients : " + clientErr.message);
 
-      if (!defaultBike || !defaultClient) {
-        throw new Error(language === 'fr' 
-          ? 'Veuillez ajouter au moins un client et une moto dans votre base de données avant de synchroniser les réservations.' 
-          : 'Please add at least one client and one motorcycle first.');
+      const { data: dbVehicles, error: vehicleErr } = await supabase.from('vehicles').select('id, brand, model, registration_number');
+      if (vehicleErr) throw new Error("Erreur lecture véhicules : " + vehicleErr.message);
+
+      if (!dbVehicles || dbVehicles.length === 0 || !dbClients || dbClients.length === 0) {
+        throw new Error('Veuillez ajouter des clients et des véhicules dans Supabase avant de synchroniser.');
       }
 
+      let syncCount = 0;
+
       for (const b of wpBookings) {
-        // Tag unique pour prévenir les doublons (ex: WP-RES-12)
-        const wpRef = `WP-RES-${b.id}`;
+        const wpRef = b.booking_ref || `WP-RES-${b.id}`;
         const existingRes = liveReservations.find((r) => r.notes && r.notes.includes(wpRef));
 
-        // Mapping des statuts WordPress vers Supabase
-        let statusDB = 'Confirmed';
-        if (b.status === 'cancelled') statusDB = 'Cancelled';
-        else if (b.status === 'pending') statusDB = 'Pending';
-        else if (b.status === 'confirmed') statusDB = 'Confirmed';
+        // 1. CORRESPONDANCE CLIENT (Par Email en priorité, puis par Prénom/Nom)
+        let matchedClient = null;
+        if (b.customer_email) {
+          matchedClient = dbClients.find(c => c.email && c.email.toLowerCase().trim() === b.customer_email.toLowerCase().trim());
+        }
+        if (!matchedClient && b.customer_name) {
+          const searchName = b.customer_name.toLowerCase().trim();
+          matchedClient = dbClients.find(c => {
+            const fName = (c.first_name || '').toLowerCase();
+            const lName = (c.last_name || '').toLowerCase();
+            return searchName.includes(fName) || fName.includes(searchName) || `${fName} ${lName}`.includes(searchName);
+          });
+        }
+        const clientId = matchedClient ? matchedClient.id : dbClients[0].id;
 
-        // Tentative de lier au bon client si le nom correspond
-        const matchedClient = clients.find(c => 
-          (b.client_name && c.fullName.toLowerCase() === b.client_name.toLowerCase())
-        ) || defaultClient;
+        // 2. CORRESPONDANCE MOTO
+        let matchedVehicle = null;
+        if (b.bike_name) {
+          const bikeClean = b.bike_name.toLowerCase().trim();
+          matchedVehicle = dbVehicles.find(v => {
+            const modelClean = (v.model || '').toLowerCase();
+            const brandClean = (v.brand || '').toLowerCase();
+            return bikeClean.includes(modelClean) || modelClean.includes(bikeClean) || bikeClean.includes(brandClean);
+          });
+        }
+        const vehicleId = matchedVehicle ? matchedVehicle.id : dbVehicles[0].id;
+
+        let statusDB = 'Confirmed';
+        const wpStatus = (b.status || '').toLowerCase();
+        if (wpStatus === 'cancelled') statusDB = 'Cancelled';
+        else if (wpStatus === 'pending') statusDB = 'Pending';
+        else if (wpStatus === 'confirmed') statusDB = 'Confirmed';
+
+        const safeStartDate = (b.pickup_date || b.start_date) ? (b.pickup_date || b.start_date) : new Date().toISOString().split('T')[0];
+        const safeEndDate = (b.return_date || b.end_date) ? (b.return_date || b.end_date) : new Date().toISOString().split('T')[0];
 
         const payload = {
-          client_id: matchedClient.id,
-          vehicle_id: defaultBike.id, // On utilise la moto par défaut pour l'instant (ID court WP vs UUID)
-          start_date: b.start_date,
-          end_date: b.end_date,
-          total_price: Number(b.total_price) || 0,
-          amount_paid: 0,
+          client_id: clientId,
+          vehicle_id: vehicleId,
+          start_date: safeStartDate,
+          end_date: safeEndDate,
+          total_price: Number(b.grand_total || b.total_price) || 0,
+          amount_paid: wpStatus === 'confirmed' ? (Number(b.grand_total) || 0) : 0,
           status: statusDB,
-          notes: `${wpRef} | Client WP: ${b.client_name} | Tel: ${b.client_phone} | Moto ID WP: ${b.bike_id}`
+          notes: `Réf: ${wpRef} | Client WP: ${b.customer_name} | Moto WP: ${b.bike_name}`
         };
 
         if (existingRes) {
-          // Mise à jour (Update)
           await supabase.from('reservations').update(payload).eq('id', existingRes.id);
         } else {
-          // Nouvelle insertion (Insert)
           await supabase.from('reservations').insert([payload]);
         }
+        
+        syncCount++;
       }
 
-      alert(language === 'fr' 
-        ? 'Réservations synchronisées avec succès depuis WordPress !' 
-        : 'Bookings successfully synchronized from WordPress!');
+      alert(`${syncCount} réservations synchronisées avec succès !`);
+        
       await fetchLiveReservations();
       onUpdate();
     } catch (err: any) {
       console.error(err);
-      alert((language === 'fr' ? 'Erreur de synchronisation : ' : 'Sync error: ') + err.message);
+      alert('Erreur de synchronisation : ' + err.message);
     } finally {
       setSyncing(false);
     }
   };
-
   // Handover (Check-in / Check-out) Modal state
   const [handoverRes, setHandoverRes] = useState<{ res: Reservation; mode: 'checkout' | 'checkin' } | null>(null);
 

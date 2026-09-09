@@ -9,10 +9,9 @@ import { EmptyState } from '../common/EmptyState';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { formatCurrency } from '../../utils/calculations';
 import { useLanguage } from '../../context/LanguageContext';
-import { supabase } from '../../services/supabase'; // <-- Import de Supabase
+import { supabase } from '../../services/supabase';
 
 interface ClientsModuleProps {
-  // On garde les props pour la compatibilité avec le reste de l'app
   clients: Client[];
   reservations: Reservation[];
   currency: 'MAD' | 'EUR' | 'USD';
@@ -21,41 +20,59 @@ interface ClientsModuleProps {
 }
 
 export const ClientsModule: React.FC<ClientsModuleProps> = ({
-  reservations,
   currency,
   onUpdate,
   initialOpenAddModal = false,
 }) => {
   const { t, formatCurrencyVal, language } = useLanguage();
   
-  // ----------------------------------------------------
-  // ÉTATS DE LA BASE DE DONNÉES EN DIRECT (Supabase)
-  // ----------------------------------------------------
   const [liveClients, setLiveClients] = useState<Client[]>([]);
   const [isLoadingDb, setIsLoadingDb] = useState(true);
+  const [syncing, setSyncing] = useState(false);
 
-  const fetchLiveClients = async () => {
+  // Charger les clients ET les réservations directement depuis Supabase en même temps
+  const fetchLiveClientsAndData = async () => {
     try {
       setIsLoadingDb(true);
-      const { data, error } = await supabase
+
+      // 1. Récupérer les clients
+      const { data: clientsData, error: clientError } = await supabase
         .from('clients')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (clientError) throw clientError;
 
-      // Mapping des données Supabase vers l'interface Client React
-      const mappedClients = (data || []).map((c: any) => {
-        // Optionnel : Calculer dynamiquement les dépenses si on a les réservations
-        const clientReservations = reservations.filter(r => r.clientId === c.id);
+      // 2. Récupérer les réservations directement depuis Supabase pour les calculs LTV
+      const { data: resData, error: resError } = await supabase
+        .from('reservations')
+        .select('*');
+
+      if (resError) throw resError;
+
+      const mappedClients = (clientsData || []).map((c: any) => {
+        const fullNameCheck = `${c.first_name || ''} ${c.last_name || ''}`.toLowerCase().trim();
+        const emailCheck = (c.email || '').toLowerCase().trim();
+
+        // Filtrer les réservations par UUID direct OU par correspondance dans les notes WordPress
+        const clientReservations = (resData || []).filter((r: any) => {
+          if (r.client_id === c.id) return true;
+          if (r.notes) {
+            const notesLower = r.notes.toLowerCase();
+            if (emailCheck && notesLower.includes(emailCheck)) return true;
+            if (fullNameCheck && notesLower.includes(fullNameCheck)) return true;
+          }
+          return false;
+        });
+
         const bookingsCount = clientReservations.length;
-        const totalSpent = clientReservations.reduce((sum, r) => sum + r.totalPrice, 0);
+        const totalSpent = clientReservations.reduce((sum: number, r: any) => sum + (Number(r.total_price) || 0), 0);
 
         return {
           id: c.id,
           firstName: c.first_name,
           lastName: c.last_name,
-          fullName: `${c.first_name} ${c.last_name}`,
+          fullName: `${c.first_name || ''} ${c.last_name || ''}`.trim(),
           email: c.email,
           phone: c.phone,
           whatsapp: c.whatsapp || c.phone,
@@ -73,7 +90,6 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
           bookingsCount: bookingsCount,
           avgBookingValue: bookingsCount > 0 ? totalSpent / bookingsCount : 0,
           lifetimeValue: totalSpent,
-          // Attributs requis par l'interface mais non vitaux
           dateOfBirth: '1990-01-01',
           address: '',
           createdBy: 'Admin',
@@ -88,9 +104,64 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
     }
   };
 
+  const handleSyncWordPressClients = async () => {
+    setSyncing(true);
+    try {
+      const response = await fetch('https://motonomad.ma/wp-json/motonomad/v1/clients'); 
+      if (!response.ok) {
+          throw new Error('Erreur de connexion à l\'API Motonomad');
+      }
+      
+      const wpClients = await response.json();
+
+      if (!Array.isArray(wpClients)) {
+        throw new Error('Format de données invalide reçu depuis WordPress');
+      }
+
+      const { data: existingClients, error: fetchError } = await supabase
+        .from('clients')
+        .select('id, email');
+
+      if (fetchError) throw fetchError;
+
+      for (const client of wpClients) {
+        const existingClient = (existingClients || []).find(
+          (c) => c.email === client.email
+        );
+
+        const clientPayload = {
+          first_name: client.first_name || 'Client',
+          last_name: client.last_name || '',
+          email: client.email,
+          phone: client.phone || '',
+          nationality: client.nationality || null,
+        };
+
+        if (existingClient) {
+          await supabase.from('clients').update(clientPayload).eq('id', existingClient.id);
+        } else {
+          await supabase.from('clients').insert([clientPayload]);
+        }
+      }
+
+      alert(
+        language === 'fr'
+          ? 'Synchronisation réussie ! L\'API personnalisée est connectée.'
+          : 'Successfully synchronized! Custom API connected.'
+      );
+      await fetchLiveClientsAndData();
+      onUpdate();
+    } catch (err: any) {
+      console.error(err);
+      alert((language === 'fr' ? 'Erreur de synchronisation : ' : 'Sync error: ') + err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   useEffect(() => {
-    fetchLiveClients();
-  }, [reservations]); // Se met à jour si les réservations changent pour recalculer les dépenses
+    fetchLiveClientsAndData();
+  }, []);
 
   // UI States
   const [search, setSearch] = useState('');
@@ -102,38 +173,16 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
 
   // Form State
   const [formData, setFormData] = useState<Partial<Client>>({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    whatsapp: '',
-    nationality: 'French',
-    country: 'France',
-    passportNumber: '',
-    passportExpiry: '',
-    licenseNumber: '',
-    licenseCategory: 'A',
-    licenseExpiry: '',
-    emergencyContact: '',
-    notes: '',
+    firstName: '', lastName: '', email: '', phone: '', whatsapp: '', nationality: 'French',
+    country: 'France', passportNumber: '', passportExpiry: '', licenseNumber: '',
+    licenseCategory: 'A', licenseExpiry: '', emergencyContact: '', notes: '',
   });
 
   const handleOpenAdd = () => {
     setFormData({
-      firstName: '',
-      lastName: '',
-      email: '',
-      phone: '',
-      whatsapp: '',
-      nationality: 'French',
-      country: 'France',
-      passportNumber: '',
-      passportExpiry: '',
-      licenseNumber: '',
-      licenseCategory: 'A',
-      licenseExpiry: '',
-      emergencyContact: '',
-      notes: '',
+      firstName: '', lastName: '', email: '', phone: '', whatsapp: '', nationality: 'French',
+      country: 'France', passportNumber: '', passportExpiry: '', licenseNumber: '',
+      licenseCategory: 'A', licenseExpiry: '', emergencyContact: '', notes: '',
     });
     setIsAddModalOpen(true);
   };
@@ -143,7 +192,6 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
     setIsLoadingDb(true);
 
     try {
-      // Préparation du Payload pour Supabase
       const payload = {
         first_name: formData.firstName || '',
         last_name: formData.lastName || '',
@@ -162,14 +210,12 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
       };
 
       if (isEditModalOpen && selectedClient) {
-        // Mise à jour Cloud
         await supabase.from('clients').update(payload).eq('id', selectedClient.id);
       } else {
-        // Insertion Cloud
         await supabase.from('clients').insert([payload]);
       }
 
-      await fetchLiveClients(); // Rafraîchir la liste avec les nouvelles données
+      await fetchLiveClientsAndData();
       setIsAddModalOpen(false);
       setIsEditModalOpen(false);
       setSelectedClient(null);
@@ -187,7 +233,7 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
       setIsLoadingDb(true);
       try {
         await supabase.from('clients').delete().eq('id', deleteClientId);
-        await fetchLiveClients();
+        await fetchLiveClientsAndData();
         setDeleteClientId(null);
         setSelectedClient(null);
         onUpdate();
@@ -199,7 +245,6 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
     }
   };
 
-  // Filter clients on the live data
   const filteredClients = liveClients.filter((c) => {
     const matchesSearch = 
       c.fullName.toLowerCase().includes(search.toLowerCase()) ||
@@ -252,7 +297,20 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
               : 'Manage rider profiles, identity documents, and booking histories.'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleSyncWordPressClients}
+            disabled={syncing}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#262626] text-[#D4A017] border border-[#333333] hover:bg-[#333333] transition-colors cursor-pointer shadow-md"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            <span>
+              {syncing
+                ? (language === 'fr' ? 'Synchronisation...' : 'Syncing...')
+                : (language === 'fr' ? 'Synchroniser WordPress' : 'Sync WordPress')}
+            </span>
+          </button>
+
           <button
             onClick={exportCSV}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-[#1A1A1A] border border-[#333333] text-zinc-300 hover:text-white hover:border-zinc-500 transition-all shadow-sm cursor-pointer"
@@ -268,7 +326,7 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
         </div>
       </div>
 
-      {/* Filter Bar (Modern sleek design) */}
+      {/* Filter Bar */}
       <div className="flex flex-col sm:flex-row items-center gap-3 p-2 rounded-2xl bg-[#181818] border border-[#2D2D2D] shadow-sm">
         <div className="relative flex-1 w-full flex items-center px-3">
           <Search className="w-4 h-4 text-zinc-500 shrink-0" />
@@ -306,112 +364,6 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
         />
       ) : (
         <div className="space-y-4">
-          {/* Mobile Card Layout (Rich Information Data) */}
-          <div className="grid grid-cols-1 gap-4 md:hidden">
-            {filteredClients.map((client) => (
-              <div
-                key={client.id}
-                onClick={() => setSelectedClient(client)}
-                className="p-4 rounded-2xl bg-[#181818] border border-[#2D2D2D] hover:border-[#D4A017]/40 transition-colors shadow-xl space-y-3 cursor-pointer"
-              >
-                {/* Header: Avatar, Name, Spend, ID */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2D2D2D] to-[#1A1A1A] text-[#D4A017] font-bold border border-[#383838] shadow-sm">
-                      {client.firstName.charAt(0)}{client.lastName.charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="font-bold text-sm text-white truncate">{client.fullName}</h4>
-                      <span className="text-[10px] text-zinc-500 font-mono block">ID: {client.id.split('-')[0]}...</span>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-sm font-black text-emerald-400 block">
-                      {formatCurrencyVal(client.totalSpent || 0, currency)}
-                    </span>
-                    <div className="flex items-center justify-end gap-1 mt-0.5 text-zinc-400">
-                      <Calendar className="w-3 h-3 text-[#D4A017]/70" />
-                      <span className="text-[10px] font-bold">{client.bookingsCount} {language === 'fr' ? 'Résa' : 'Bookings'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Info Grid: Contact & Identity */}
-                <div className="grid grid-cols-1 gap-2 text-xs pt-2 border-t border-[#2A2A2A]">
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex items-center gap-2 text-zinc-300">
-                      <Mail className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                      <span className="truncate">{client.email || 'N/A'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-zinc-300">
-                      <Phone className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                      <span className="truncate">{client.phone || 'N/A'}</span>
-                      <span className="text-zinc-600 mx-1">•</span>
-                      <span className="truncate text-zinc-400">{client.nationality || 'N/A'}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2 mt-1">
-                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#222222] border border-[#333333] w-fit">
-                      <IdCard className="w-3 h-3 text-zinc-500" />
-                      <span className="text-[10px] font-mono text-zinc-300">{client.passportNumber || 'N/A'}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-950/10 border border-amber-900/20 w-fit">
-                      <CreditCard className="w-3 h-3 text-amber-500/70" />
-                      <span className="text-[10px] font-mono text-amber-400">
-                        {client.licenseCategory ? `[${client.licenseCategory}] ` : ''}{client.licenseNumber || 'N/A'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Quick Touch Action Buttons */}
-                <div className="flex items-center justify-between gap-2 pt-3 border-t border-[#2A2A2A]" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center gap-2">
-                    {client.phone && (
-                      <a
-                        href={`tel:${client.phone}`}
-                        className="flex items-center justify-center w-9 h-9 rounded-xl bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 hover:bg-emerald-900/40 transition-colors"
-                      >
-                        <Phone className="w-4 h-4" />
-                      </a>
-                    )}
-                    {(client.whatsapp || client.phone) && (
-                      <a
-                        href={`https://wa.me/${(client.whatsapp || client.phone).replace(/[^0-9]/g, '')}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center w-9 h-9 rounded-xl bg-emerald-600/10 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                      </a>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setSelectedClient(client);
-                        setFormData(client);
-                        setIsEditModalOpen(true);
-                      }}
-                      className="p-2 rounded-xl bg-[#262626] text-zinc-300 hover:text-white border border-[#333333] transition-colors cursor-pointer"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setDeleteClientId(client.id)}
-                      className="p-2 rounded-xl bg-rose-950/30 text-rose-400 hover:bg-rose-900/50 border border-rose-900/30 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Desktop Table Layout (Premium Clean Design) */}
           <div className="hidden md:block rounded-2xl border border-[#2D2D2D] bg-[#181818] overflow-hidden shadow-2xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -433,7 +385,6 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
                       className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
                       onClick={() => setSelectedClient(client)}
                     >
-                      {/* Avatar & Name */}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3.5">
                           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2D2D2D] to-[#1A1A1A] text-[#D4A017] font-bold border border-[#383838] shadow-sm">
@@ -445,8 +396,6 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
                           </div>
                         </div>
                       </td>
-                      
-                      {/* Contact */}
                       <td className="px-6 py-4">
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-2 text-zinc-300 text-xs">
@@ -459,14 +408,10 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
                           </div>
                         </div>
                       </td>
-
-                      {/* Nationality */}
                       <td className="px-6 py-4">
                         <span className="font-semibold text-zinc-200 block">{client.nationality || '-'}</span>
                         <span className="text-zinc-500 text-xs">{client.country || '-'}</span>
                       </td>
-
-                      {/* IDs (Pass & License) */}
                       <td className="px-6 py-4">
                         <div className="flex flex-col gap-1.5">
                           <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#222222] border border-[#333333] w-fit">
@@ -481,21 +426,15 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
                           </div>
                         </div>
                       </td>
-
-                      {/* Bookings */}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4 text-[#D4A017]/70" />
                           <span className="font-bold text-white">{client.bookingsCount}</span>
                         </div>
                       </td>
-
-                      {/* Spend */}
                       <td className="px-6 py-4 font-black text-emerald-400">
                         {formatCurrencyVal(client.totalSpent, currency)}
                       </td>
-
-                      {/* Actions */}
                       <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
@@ -537,7 +476,6 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
           maxWidth="4xl"
         >
           <div className="space-y-6">
-            {/* Top KPI Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="p-4 rounded-xl bg-[#252525] border border-[#333333]">
                 <span className="text-[10px] uppercase font-bold text-zinc-400 block">{language === 'fr' ? 'Total Dépensé' : 'Total Spent'}</span>
@@ -557,7 +495,6 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
               </div>
             </div>
 
-            {/* Client Personal & Legal Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="p-5 rounded-2xl bg-[#222222] border border-[#333333] space-y-3 text-sm">
                 <h4 className="font-bold text-sm text-[#D4A017] border-b border-[#333333] pb-2 flex items-center gap-2">
@@ -582,7 +519,6 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
               </div>
             </div>
 
-            {/* Notes */}
             {selectedClient.notes && (
               <div className="p-4 rounded-xl bg-[#222222] border border-[#333333] text-sm">
                 <span className="font-bold text-[#D4A017] block mb-2 flex items-center gap-2"><FileText className="w-4 h-4"/> {language === 'fr' ? 'Notes du Pilote :' : 'Rider Notes:'}</span>
@@ -658,100 +594,6 @@ export const ClientsModule: React.FC<ClientsModuleProps> = ({
                   className="w-full p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333333] text-[#F4F4F2] focus:border-[#D4A017] outline-none"
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="font-bold text-zinc-300 block mb-1">{language === 'fr' ? 'Nationalité' : 'Nationality'}</label>
-                <input
-                  type="text"
-                  value={formData.nationality || ''}
-                  onChange={(e) => setFormData({ ...formData, nationality: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333333] text-[#F4F4F2] focus:border-[#D4A017] outline-none"
-                />
-              </div>
-              <div>
-                <label className="font-bold text-zinc-300 block mb-1">{language === 'fr' ? 'Pays de Résidence' : 'Country of Residence'}</label>
-                <input
-                  type="text"
-                  value={formData.country || ''}
-                  onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333333] text-[#F4F4F2] focus:border-[#D4A017] outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-[#2D2D2D] pt-4 mt-2">
-              <div>
-                <label className="font-bold text-zinc-300 block mb-1">{language === 'fr' ? 'Numéro de Passeport' : 'Passport Number'}</label>
-                <input
-                  type="text"
-                  value={formData.passportNumber || ''}
-                  onChange={(e) => setFormData({ ...formData, passportNumber: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333333] text-[#F4F4F2] focus:border-[#D4A017] outline-none font-mono"
-                />
-              </div>
-              <div>
-                <label className="font-bold text-zinc-300 block mb-1">{language === 'fr' ? 'Expiration du Passeport' : 'Passport Expiry'}</label>
-                <input
-                  type="date"
-                  value={formData.passportExpiry || ''}
-                  onChange={(e) => setFormData({ ...formData, passportExpiry: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333333] text-[#F4F4F2] focus:border-[#D4A017] outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="font-bold text-zinc-300 block mb-1">{language === 'fr' ? 'Numéro de Permis' : 'License Number'}</label>
-                <input
-                  type="text"
-                  value={formData.licenseNumber || ''}
-                  onChange={(e) => setFormData({ ...formData, licenseNumber: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333333] text-[#F4F4F2] focus:border-[#D4A017] outline-none font-mono text-amber-500"
-                />
-              </div>
-              <div>
-                <label className="font-bold text-zinc-300 block mb-1">{language === 'fr' ? 'Catégorie' : 'Category'}</label>
-                <input
-                  type="text"
-                  value={formData.licenseCategory || 'A'}
-                  onChange={(e) => setFormData({ ...formData, licenseCategory: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333333] text-[#F4F4F2] focus:border-[#D4A017] outline-none"
-                />
-              </div>
-              <div>
-                <label className="font-bold text-zinc-300 block mb-1">{language === 'fr' ? 'Expiration du Permis' : 'License Expiry'}</label>
-                <input
-                  type="date"
-                  value={formData.licenseExpiry || ''}
-                  onChange={(e) => setFormData({ ...formData, licenseExpiry: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333333] text-[#F4F4F2] focus:border-[#D4A017] outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="border-t border-[#2D2D2D] pt-4 mt-2">
-              <label className="font-bold text-zinc-300 block mb-1">{language === 'fr' ? 'Détails du Contact d’Urgence' : 'Emergency Contact Details'}</label>
-              <input
-                type="text"
-                placeholder={language === 'fr' ? 'Nom, relation et numéro de téléphone...' : 'Name, relationship and phone number...'}
-                value={formData.emergencyContact || ''}
-                onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })}
-                className="w-full p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333333] text-[#F4F4F2] focus:border-[#D4A017] outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="font-bold text-zinc-300 block mb-1">{language === 'fr' ? 'Notes / Préférences' : 'Notes / Preferences'}</label>
-              <textarea
-                rows={2}
-                placeholder={language === 'fr' ? 'Expérience de conduite, préférence de hauteur de moto, tailles d’équipement...' : 'Riding experience, bike height preference, equipment sizes...'}
-                value={formData.notes || ''}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                className="w-full p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333333] text-[#F4F4F2] focus:border-[#D4A017] outline-none"
-              />
             </div>
 
             <div className="flex justify-end gap-3 pt-4 mt-2">
